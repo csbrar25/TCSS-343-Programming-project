@@ -169,14 +169,14 @@ def run_experiment(graph, start_node, goal_node, grid=False):
 
     return results, times
 
-def create_random_graph(num_nodes, num_edges, weight_range=(1, 10)):
+def create_random_graph(num_nodes, num_edges, weight_range=(1, 50)):
     """Create a random directed graph with a given number of nodes and edges."""
     G = nx.gnm_random_graph(num_nodes, num_edges, directed=True)
     for (u, v) in G.edges():
         G[u][v]['weight'] = np.random.randint(*weight_range)
     return nx.to_dict_of_dicts(G)
 
-def create_grid_graph(size, weight_range=(1, 10)):
+def create_grid_graph(size, weight_range=(1, 50)):
     """Create a grid graph for A* testing."""
     G = nx.grid_2d_graph(size, size)
     for (u, v) in G.edges():
