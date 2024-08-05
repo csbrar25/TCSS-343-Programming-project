@@ -8,6 +8,7 @@ def dijkstra(graph, start):
     """Dijkstra's Algorithm for shortest paths from a single source."""
     distances = {node: float('inf') for node in graph}
     distances[start] = 0
+    predecessors = {node: None for node in graph}
     priority_queue = [(0, start)]
 
     while priority_queue:
@@ -22,9 +23,20 @@ def dijkstra(graph, start):
             distance = current_distance + weight
             if distance < distances[neighbor]:
                 distances[neighbor] = distance
+                predecessors[neighbor] = current_node
                 heapq.heappush(priority_queue, (distance, neighbor))
 
-    return distances
+    return distances, predecessors
+
+def reconstruct_path(predecessors, start, goal):
+    """Reconstruct the path from start to goal using predecessor information."""
+    path = []
+    current = goal
+    while current is not None:
+        path.append(current)
+        current = predecessors[current]
+    path.reverse()
+    return path if path[0] == start else []
 
 def heuristic(node, goal):
     """Heuristic function for A* (Manhattan distance for grids)."""
@@ -36,7 +48,7 @@ def a_star(graph, start, goal, grid=False):
     """A* Search Algorithm for shortest path from start to goal."""
     open_set = [(0, start)]
     heapq.heapify(open_set)
-    came_from = {}
+    came_from = {start: None}
     g_score = {node: float('inf') for node in graph}
     g_score[start] = 0
     f_score = {node: float('inf') for node in graph}
@@ -46,12 +58,7 @@ def a_star(graph, start, goal, grid=False):
         current = heapq.heappop(open_set)[1]
 
         if current == goal:
-            path = []
-            while current in came_from:
-                path.append(current)
-                current = came_from[current]
-            path.append(start)
-            return path[::-1]
+            return reconstruct_path(came_from, start, goal), g_score[goal]
 
         for neighbor, weight in graph[current].items():
             if isinstance(weight, dict):
@@ -64,12 +71,13 @@ def a_star(graph, start, goal, grid=False):
                 if neighbor not in [i[1] for i in open_set]:
                     heapq.heappush(open_set, (f_score[neighbor], neighbor))
 
-    return []
+    return [], float('inf')
 
 def bellman_ford(graph, start):
     """Bellman-Ford Algorithm for shortest paths from a single source."""
     distances = {node: float('inf') for node in graph}
     distances[start] = 0
+    predecessors = {node: None for node in graph}
 
     for _ in range(len(graph) - 1):
         for node in graph:
@@ -78,6 +86,7 @@ def bellman_ford(graph, start):
                     weight = weight.get('weight', float('inf'))
                 if distances[node] + weight < distances[neighbor]:
                     distances[neighbor] = distances[node] + weight
+                    predecessors[neighbor] = node
 
     for node in graph:
         for neighbor, weight in graph[node].items():
@@ -86,12 +95,13 @@ def bellman_ford(graph, start):
             if distances[node] + weight < distances[neighbor]:
                 raise ValueError("Graph contains a negative-weight cycle")
 
-    return distances
+    return distances, predecessors
 
 def floyd_warshall(graph):
     """Floyd-Warshall Algorithm for shortest paths between all pairs of nodes."""
     nodes = list(graph.keys())
     dist = {node: {node2: float('inf') for node2 in nodes} for node in nodes}
+    next_node = {node: {node2: None for node2 in nodes} for node in nodes}
 
     for node in nodes:
         dist[node][node] = 0
@@ -99,53 +109,74 @@ def floyd_warshall(graph):
             if isinstance(weight, dict):
                 weight = weight.get('weight', float('inf'))
             dist[node][neighbor] = weight
+            next_node[node][neighbor] = neighbor
 
     for k in nodes:
         for i in nodes:
             for j in nodes:
                 if dist[i][j] > dist[i][k] + dist[k][j]:
                     dist[i][j] = dist[i][k] + dist[k][j]
+                    next_node[i][j] = next_node[i][k]
 
-    return dist
+    return dist, next_node
+
+def reconstruct_fw_path(next_node, start, goal):
+    """Reconstruct the path using the Floyd-Warshall next node information."""
+    if next_node[start][goal] is None:
+        return []
+    path = [start]
+    while start != goal:
+        start = next_node[start][goal]
+        path.append(start)
+    return path
 
 def run_experiment(graph, start_node, goal_node, grid=False):
     """Run all algorithms and measure their execution time."""
+    results = {}
     times = {}
     
     # Dijkstra's Algorithm
     start_time = time.time()
-    dijkstra_result = dijkstra(graph, start_node)
+    distances, predecessors = dijkstra(graph, start_node)
+    path = reconstruct_path(predecessors, start_node, goal_node)
     times['Dijkstra'] = time.time() - start_time
+    results['Dijkstra'] = (path, distances[goal_node])
 
     # A* Algorithm
     start_time = time.time()
-    a_star_result = a_star(graph, start_node, goal_node, grid)
+    path, cost = a_star(graph, start_node, goal_node, grid)
     times['A*'] = time.time() - start_time
+    results['A*'] = (path, cost)
 
     # Bellman-Ford Algorithm
     start_time = time.time()
     try:
-        bellman_ford_result = bellman_ford(graph, start_node)
+        distances, predecessors = bellman_ford(graph, start_node)
+        path = reconstruct_path(predecessors, start_node, goal_node)
         times['Bellman-Ford'] = time.time() - start_time
+        results['Bellman-Ford'] = (path, distances[goal_node])
     except ValueError as e:
         print(e)
         times['Bellman-Ford'] = float('inf')  # Infinite time if negative cycle
+        results['Bellman-Ford'] = ([], float('inf'))
 
     # Floyd-Warshall Algorithm
     start_time = time.time()
-    floyd_warshall_result = floyd_warshall(graph)
+    dist, next_node = floyd_warshall(graph)
+    path = reconstruct_fw_path(next_node, start_node, goal_node)
     times['Floyd-Warshall'] = time.time() - start_time
+    results['Floyd-Warshall'] = (path, dist[start_node][goal_node])
 
-    return times
+    return results, times
 
-def create_random_graph(num_nodes, num_edges, weight_range=(1, 20)):
+def create_random_graph(num_nodes, num_edges, weight_range=(1, 10)):
     """Create a random directed graph with a given number of nodes and edges."""
     G = nx.gnm_random_graph(num_nodes, num_edges, directed=True)
     for (u, v) in G.edges():
         G[u][v]['weight'] = np.random.randint(*weight_range)
     return nx.to_dict_of_dicts(G)
 
-def create_grid_graph(size, weight_range=(1, 20)):
+def create_grid_graph(size, weight_range=(1, 10)):
     """Create a grid graph for A* testing."""
     G = nx.grid_2d_graph(size, size)
     for (u, v) in G.edges():
@@ -175,33 +206,34 @@ def plot_results(results):
 
 # Main experiment with different scenarios
 results = {}
+times = {}
 
 # Dense graph
 print("Test cases for dense graph")
-dense_graph = create_random_graph(30, 100)  
-results['Dense Graph'] = run_experiment(dense_graph, 0, 29)
-for alg, time_taken in results['Dense Graph'].items():
-    print(f"{alg} on Dense Graph took {time_taken:.6f} seconds")
+dense_graph = create_random_graph(30, 100)  # 30 nodes, 100 edges
+results['Dense Graph'], times['Dense Graph'] = run_experiment(dense_graph, 0, 29)
+for alg, (path, cost) in results['Dense Graph'].items():
+    print(f"{alg} on Dense Graph found path {path} with cost {cost:.6f} in {times['Dense Graph'][alg]:.6f} seconds")
 
 # Grid graph
 print("\nTest cases for grid graph")
-grid_graph = create_grid_graph(8)  
-results['Grid Graph'] = run_experiment(grid_graph, (0, 0), (7, 7), grid=True)
-for alg, time_taken in results['Grid Graph'].items():
-    print(f"{alg} on Grid Graph took {time_taken:.6f} seconds")
+grid_graph = create_grid_graph(8)  # 8x8 grid
+results['Grid Graph'], times['Grid Graph'] = run_experiment(grid_graph, (0, 0), (7, 7), grid=True)
+for alg, (path, cost) in results['Grid Graph'].items():
+    print(f"{alg} on Grid Graph found path {path} with cost {cost:.6f} in {times['Grid Graph'][alg]:.6f} seconds")
 
 # Simple negative weight graph
 print("\nTest cases for graph with simple negative weights")
 negative_graph = create_simple_negative_weight_graph()
-results['Negative Weights'] = run_experiment(negative_graph, 0, 5)
-for alg, time_taken in results['Negative Weights'].items():
-    print(f"{alg} on Negative Weights Graph took {time_taken:.6f} seconds")
+results['Negative Weights'], times['Negative Weights'] = run_experiment(negative_graph, 0, 5)
+for alg, (path, cost) in results['Negative Weights'].items():
+    print(f"{alg} on Negative Weights Graph found path {path} with cost {cost:.6f} in {times['Negative Weights'][alg]:.6f} seconds")
 
 # Complete graph
 print("\nTest cases for complete graph")
-complete_graph = create_random_graph(10, 45)  
-results['Complete Graph'] = run_experiment(complete_graph, 0, 9)
-for alg, time_taken in results['Complete Graph'].items():
-    print(f"{alg} on Complete Graph took {time_taken:.6f} seconds")
+complete_graph = create_random_graph(10, 45)  # Complete graph with 10 nodes, more edges
+results['Complete Graph'], times['Complete Graph'] = run_experiment(complete_graph, 0, 9)
+for alg, (path, cost) in results['Complete Graph'].items():
+    print(f"{alg} on Complete Graph found path {path} with cost {cost:.6f} in {times['Complete Graph'][alg]:.6f} seconds")
 
-plot_results(results)
+plot_results(times)
